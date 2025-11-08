@@ -1,5 +1,4 @@
 #!/bin/sh
-
 set -e
 
 # Configuration
@@ -9,8 +8,9 @@ REPO_BRANCH="main"
 
 # Ensure non-interactive mode
 export DEBIAN_FRONTEND=noninteractive
-#!/bin/bash
-set -e
+
+# Enable non-free and contrib repositories
+sudo sed -i 's/main$/main contrib non-free non-free-firmware/' /etc/apt/sources.list
 
 # Add VS Code repo
 wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /usr/share/keyrings/packages.microsoft.gpg > /dev/null
@@ -28,4 +28,6 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$
 # Set theme in .zshrc
 sed -i 's/ZSH_THEME=".*"/ZSH_THEME="powerlevel10k\/powerlevel10k"/' ~/.zshrc
 
-echo "Done. Run 'chsh -s /usr/bin/zsh' and logout/login"
+chsh -s /usr/bin/zsh
+
+echo "Done. Logout and login for zsh to take effect"
