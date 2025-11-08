@@ -1,0 +1,883 @@
+---
+- name: Bootstrap Development System (Fully Configured)
+  hosts: localhost
+  connection: local
+  become: yes
+  
+  vars:
+    # ============================================
+    # USER CONFIGURATION - LOADED FROM .env FILE
+    # ============================================
+    user_home: "{{ lookup('env', 'HOME') }}"
+    username: "{{ lookup('env', 'USER') }}"
+    
+    # Load configuration from .env file
+    env_file_path: "{{ playbook_dir }}/.env"
+    
+  pre_tasks:
+    - name: Check if .env file exists
+      stat:
+        path: "{{ env_file_path }}"
+      register: env_file
+      delegate_to: localhost
+      become: no
+    
+    - name: Fail if .env file doesn't exist
+      fail:
+        msg: |
+          ERROR: .env file not found at {{ env_file_path }}
+          
+          Please create a .env file with the following content:
+          
+          GIT_USER_NAME="Your Name"
+          GIT_USER_EMAIL="your.email@example.com"
+          SSH_KEY_EMAIL="your.email@example.com"
+      when: not env_file.stat.exists
+    
+    - name: Load variables from .env file
+      shell: cat {{ env_file_path }}
+      register: env_contents
+      delegate_to: localhost
+      become: no
+      changed_when: false
+    
+    - name: Parse .env file
+      set_fact:
+        git_user_name: "{{ env_contents.stdout | regex_search('GIT_USER_NAME=\"?([^\"\n]+)\"?', '\\1') | first }}"
+        git_user_email: "{{ env_contents.stdout | regex_search('GIT_USER_EMAIL=\"?([^\"\n]+)\"?', '\\1') | first }}"
+        ssh_key_email: "{{ env_contents.stdout | regex_search('SSH_KEY_EMAIL=\"?([^\"\n]+)\"?', '\\1') | first }}"
+    
+    - name: Validate required variables
+      fail:
+        msg: "ERROR: {{ item.name }} is not set in .env file"
+      when: item.value == "" or item.value is none
+      loop:
+        - { name: "GIT_USER_NAME", value: "{{ git_user_name }}" }
+        - { name: "GIT_USER_EMAIL", value: "{{ git_user_email }}" }
+        - { name: "SSH_KEY_EMAIL", value: "{{ ssh_key_email }}" }
+    
+    - name: Display loaded configuration
+      debug:
+        msg: |
+          Configuration loaded successfully:
+          - Git Name: {{ git_user_name }}
+          - Git Email: {{ git_user_email }}
+          - SSH Email: {{ ssh_key_email }}
+  
+  vars_files:
+    # Additional configuration
+  
+  vars:
+    # SSH Configuration
+    ssh_key_type: "ed25519"
+    ssh_key_comment: "{{ git_user_name }} <{{ ssh_key_email }}>"
+    
+    # Android Studio Version
+    android_studio_version: "2024.1.1.12"
+    android_studio_build: "241.18034.62"
+    
+  tasks:
+    # ============================================
+    # SYSTEM UTILITIES & ESSENTIALS
+    # ============================================
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install essential packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - build-essential
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - dconf-cli
+          - fontconfig
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # SSH KEY GENERATION
+    # ============================================
+
+    - name: Create .ssh directory
+      file:
+        path: "{{ user_home }}/.ssh"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0700"
+
+    - name: Check if SSH key exists
+      stat:
+        path: "{{ user_home }}/.ssh/id_{{ ssh_key_type }}"
+      register: ssh_key_stat
+      become_user: "{{ username }}"
+
+    - name: Generate SSH key pair
+      community.crypto.openssh_keypair:
+        path: "{{ user_home }}/.ssh/id_{{ ssh_key_type }}"
+        type: "{{ ssh_key_type }}"
+        comment: "{{ ssh_key_comment }}"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0600"
+      when: not ssh_key_stat.stat.exists
+      become_user: "{{ username }}"
+
+    - name: Display SSH public key
+      command: cat {{ user_home }}/.ssh/id_{{ ssh_key_type }}.pub
+      register: ssh_public_key
+      changed_when: false
+      become_user: "{{ username }}"
+
+    - name: Show SSH public key for GitHub/GitLab
+      debug:
+        msg: |
+          ==========================================
+          Your SSH Public Key (add to GitHub/GitLab):
+          ==========================================
+          {{ ssh_public_key.stdout }}
+          ==========================================
+
+    # ============================================
+    # FONTS
+    # ============================================
+
+    - name: Create fonts directory
+      file:
+        path: "{{ user_home }}/.local/share/fonts"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0755"
+
+    - name: Install system fonts
+      apt:
+        name:
+          - fonts-firacode
+          - fonts-jetbrains-mono
+          - fonts-noto
+          - fonts-noto-color-emoji
+          - fonts-liberation
+          - fonts-liberation2
+          - fonts-cascadia-code
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Download JetBrainsMono Nerd Font
+      ansible.builtin.unarchive:
+        src: "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz"
+        dest: "{{ user_home }}/.local/share/fonts"
+        remote_src: yes
+        owner: "{{ username }}"
+        group: "{{ username }}"
+      become_user: "{{ username }}"
+
+    - name: Download FiraCode Nerd Font
+      ansible.builtin.unarchive:
+        src: "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.tar.xz"
+        dest: "{{ user_home }}/.local/share/fonts"
+        remote_src: yes
+        owner: "{{ username }}"
+        group: "{{ username }}"
+      become_user: "{{ username }}"
+
+    - name: Refresh font cache
+      command: fc-cache -fv
+      become_user: "{{ username }}"
+
+    # ============================================
+    # MULTIMEDIA & CODECS
+    # ============================================
+
+    - name: Install FFmpeg with all codecs
+      apt:
+        name:
+          - ffmpeg
+          - libavcodec-extra
+          - libavformat-dev
+          - libavutil-dev
+          - libswscale-dev
+          - libavresample-dev
+          - gstreamer1.0-plugins-base
+          - gstreamer1.0-plugins-good
+          - gstreamer1.0-plugins-bad
+          - gstreamer1.0-plugins-ugly
+          - gstreamer1.0-libav
+          - gstreamer1.0-tools
+          - x264
+          - x265
+          - libx264-dev
+          - libx265-dev
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # EARLYOOM - Memory Manager
+    # ============================================
+
+    - name: Install earlyoom
+      apt:
+        name: earlyoom
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Create earlyoom systemd override directory
+      file:
+        path: /etc/systemd/system/earlyoom.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Configure earlyoom with custom settings
+      copy:
+        dest: /etc/systemd/system/earlyoom.service.d/override.conf
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=/usr/bin/earlyoom -m 5 -s 5 --prefer '^(chrome|chromium)$' --avoid '^code$' -r 60
+        mode: "0644"
+      notify: Reload systemd and restart earlyoom
+
+    - name: Enable and start earlyoom service
+      systemd:
+        name: earlyoom
+        enabled: yes
+        state: started
+
+    # ============================================
+    # SWAP CONFIGURATION
+    # ============================================
+
+    - name: Set swappiness to 1 (runtime)
+      sysctl:
+        name: vm.swappiness
+        value: "1"
+        state: present
+        reload: yes
+
+    - name: Make swappiness permanent
+      lineinfile:
+        path: /etc/sysctl.d/99-swappiness.conf
+        line: "vm.swappiness=1"
+        create: yes
+        mode: "0644"
+
+    # ============================================
+    # BEAUTIFUL ICONS & THEMES
+    # ============================================
+
+    - name: Add Papirus icon theme PPA key
+      apt_key:
+        keyserver: keyserver.ubuntu.com
+        id: 9C27B31342B12E1C
+        state: present
+
+    - name: Add Papirus PPA repository
+      apt_repository:
+        repo: "deb http://ppa.launchpad.net/papirus/papirus/ubuntu jammy main"
+        state: present
+        filename: papirus
+
+    - name: Install icon themes
+      apt:
+        name:
+          - papirus-icon-theme
+          - numix-icon-theme-circle
+          - adwaita-icon-theme-full
+        state: present
+        update_cache: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install GTK themes and appearance tools
+      apt:
+        name:
+          - arc-theme
+          - materia-gtk-theme
+          - gnome-themes-extra
+          - gtk2-engines-murrine
+          - gtk2-engines-pixbuf
+          - gnome-tweaks
+          - dconf-editor
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # CONFIGURE GTK THEME & ICONS
+    # ============================================
+
+    - name: Set GTK theme to Arc-Dark
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/gtk-theme"
+        value: "'Arc-Dark'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Set icon theme to Papirus-Dark
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/icon-theme"
+        value: "'Papirus-Dark'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Set cursor theme
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/cursor-theme"
+        value: "'Adwaita'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Set font to JetBrains Mono
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/font-name"
+        value: "'JetBrains Mono 11'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Set monospace font
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/monospace-font-name"
+        value: "'JetBrainsMono Nerd Font 10'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Enable dark theme
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/color-scheme"
+        value: "'prefer-dark'"
+        state: present
+      become_user: "{{ username }}"
+
+    - name: Disable event sounds
+      community.general.dconf:
+        key: "/org/gnome/desktop/sound/event-sounds"
+        value: "false"
+        state: present
+      become_user: "{{ username }}"
+
+    # ============================================
+    # MODERN CLI TOOLS
+    # ============================================
+
+    - name: Install modern CLI tools
+      apt:
+        name:
+          - fzf
+          - ripgrep
+          - fd-find
+          - bat
+          - htop
+          - tree
+          - tmux
+          - zsh
+          - fastfetch
+          - jq
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # OH MY ZSH
+    # ============================================
+
+    - name: Check if Oh My Zsh is installed
+      stat:
+        path: "{{ user_home }}/.oh-my-zsh"
+      register: ohmyzsh_stat
+      become_user: "{{ username }}"
+
+    - name: Download Oh My Zsh installation script
+      get_url:
+        url: https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
+        dest: /tmp/install_ohmyzsh.sh
+        mode: "0755"
+      when: not ohmyzsh_stat.stat.exists
+
+    - name: Install Oh My Zsh
+      command: sh /tmp/install_ohmyzsh.sh --unattended
+      become_user: "{{ username }}"
+      when: not ohmyzsh_stat.stat.exists
+      environment:
+        RUNZSH: "no"
+        CHSH: "no"
+
+    - name: Install zsh-autosuggestions plugin
+      git:
+        repo: https://github.com/zsh-users/zsh-autosuggestions
+        dest: "{{ user_home }}/.oh-my-zsh/custom/plugins/zsh-autosuggestions"
+        version: master
+      become_user: "{{ username }}"
+
+    - name: Install Powerlevel10k theme
+      git:
+        repo: https://github.com/romkatv/powerlevel10k.git
+        dest: "{{ user_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
+        depth: 1
+      become_user: "{{ username }}"
+
+    - name: Configure .zshrc (Performance Optimized)
+      copy:
+        dest: "{{ user_home }}/.zshrc"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          # Enable Powerlevel10k instant prompt (MUST BE AT TOP)
+          if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+            source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+          fi
+
+          # Path to oh-my-zsh installation
+          export ZSH="$HOME/.oh-my-zsh"
+
+          # Theme
+          ZSH_THEME="powerlevel10k/powerlevel10k"
+
+          # Performance: Disable auto-update (check manually with omz update)
+          DISABLE_AUTO_UPDATE="true"
+
+          # Performance: Skip aliases from plugins
+          DISABLE_MAGIC_FUNCTIONS="true"
+
+          # Performance: Minimal plugins (remove what you don't actively use)
+          plugins=(
+            git
+            docker
+            sudo
+            zsh-autosuggestions
+          )
+
+          # Performance: Skip completion rebuild every time
+          skip_global_compinit=1
+
+          source $ZSH/oh-my-zsh.sh
+
+          # User configuration
+          export PATH="$HOME/.local/bin:$PATH"
+          export ANDROID_HOME="$HOME/android-studio-data/sdk"
+          export PATH="$PATH:$ANDROID_HOME/emulator"
+          export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          export PATH="$PATH:$HOME/android-studio/bin"
+
+          # Essential aliases only
+          alias ll='ls -lah'
+          alias gs='git status'
+          alias ga='git add'
+          alias gc='git commit'
+          alias gp='git push'
+          alias d='docker'
+          alias ..='cd ..'
+
+          # Image optimization function
+          img-opt() {
+            if [ -z "$1" ]; then
+              echo "Usage: img-opt <input-image>"
+              return 1
+            fi
+            
+            local input="$1"
+            local filename="${input%.*}"
+            local dimensions=$(identify -format "%w %h" "$input" 2>/dev/null)
+            local width=$(echo $dimensions | awk '{print $1}')
+            local height=$(echo $dimensions | awk '{print $2}')
+            
+            if [ "$width" -gt "$height" ]; then
+              local max_width=1920
+              local max_height=1080
+            else
+              local max_width=1080
+              local max_height=1920
+            fi
+            
+            sharp -i "$input" -o "${filename}-optimized.webp" resize $max_width $max_height --fit inside --webp
+            sharp -i "$input" -o "${filename}-optimized.jpg" resize $max_width $max_height --fit inside --jpeg
+            
+            echo "✓ Created: ${filename}-optimized.{webp,jpg}"
+          }
+
+          # History
+          HISTSIZE=10000
+          SAVEHIST=10000
+
+          # Load p10k config (must be at bottom)
+          [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+    - name: Create Powerlevel10k config
+      copy:
+        dest: "{{ user_home }}/.p10k.zsh"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          # Powerlevel10k instant prompt
+          if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+            source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+          fi
+
+          # Powerlevel10k basic configuration
+          typeset -g POWERLEVEL9K_INSTANT_PROMPT=quiet
+          typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
+          typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status command_execution_time time)
+
+    - name: Add p10k source to .zshrc
+      lineinfile:
+        path: "{{ user_home }}/.zshrc"
+        line: "[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh"
+        create: yes
+      become_user: "{{ username }}"
+
+    # ============================================
+    # VSCODE IDE
+    # ============================================
+
+    - name: Add Microsoft GPG key
+      apt_key:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        state: present
+
+    - name: Add VS Code repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://packages.microsoft.com/repos/code stable main"
+        state: present
+        filename: vscode
+
+    - name: Install VS Code
+      apt:
+        name: code
+        state: present
+        update_cache: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Create VS Code config directory
+      file:
+        path: "{{ user_home }}/.config/Code/User"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0755"
+
+    - name: Install VS Code extensions
+      command: code --install-extension {{ item }}
+      become_user: "{{ username }}"
+      loop:
+        - bradlc.vscode-tailwindcss
+        - esbenp.prettier-vscode
+        - astro-build.astro-vscode
+        - BeardedBear.beardedtheme
+        - BeardedBear.beardedicons
+        - pkief.material-icon-theme
+        - dbaeumer.vscode-eslint
+        - ms-vscode.vscode-typescript-next
+      environment:
+        HOME: "{{ user_home }}"
+
+    - name: Configure VS Code settings
+      copy:
+        dest: "{{ user_home }}/.config/Code/User/settings.json"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          {
+            "editor.fontFamily": "'JetBrainsMono Nerd Font', 'Fira Code', monospace",
+            "editor.fontSize": 13,
+            "editor.fontLigatures": true,
+            "workbench.colorTheme": "Default Dark+",
+            "workbench.iconTheme": "bearded-icons",
+            "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font'",
+            "terminal.integrated.fontSize": 13,
+            "editor.minimap.enabled": true,
+            "editor.tabSize": 2,
+            "editor.insertSpaces": true,
+            "files.autoSave": "afterDelay",
+            "editor.formatOnSave": true,
+            "editor.defaultFormatter": "esbenp.prettier-vscode",
+            "tailwindCSS.emmetCompletions": true,
+            "extensions.autoUpdate": false,
+            "extensions.ignoreRecommendations": true
+          }
+
+    # ============================================
+    # WEB DEVELOPMENT TOOLS
+    # ============================================
+
+    - name: Install Node.js and npm
+      apt:
+        name:
+          - nodejs
+          - npm
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install global npm packages for web development
+      npm:
+        name: "{{ item }}"
+        global: yes
+      loop:
+        - pnpm
+        - expo-cli
+        - electron
+        - "@electron-forge/cli"
+        - typescript
+        - ts-node
+        - yarn
+        - create-react-app
+        - vite
+        - sharp-cli
+      become_user: "{{ username }}"
+      environment:
+        HOME: "{{ user_home }}"
+
+    # ============================================
+    # IMAGE EDITING & OPTIMIZATION TOOLS
+    # ============================================
+
+    - name: Install Krita
+      apt:
+        name: krita
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install ImageMagick for image processing
+      apt:
+        name: imagemagick
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # ANDROID DEVELOPMENT (Native Installation)
+    # ============================================
+
+    - name: Install Java JDK for Android Studio
+      apt:
+        name:
+          - openjdk-17-jdk
+          - openjdk-17-jre
+          - libc6:i386
+          - libncurses5:i386
+          - libstdc++6:i386
+          - lib32z1
+          - libbz2-1.0:i386
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Check if Android Studio is already installed
+      stat:
+        path: "{{ user_home }}/android-studio"
+      register: android_studio_stat
+      become_user: "{{ username }}"
+
+    - name: Download Android Studio tarball
+      get_url:
+        url: "https://redirector.gvt1.com/edgedl/android/studio/ide-zips/{{ android_studio_version }}/android-studio-{{ android_studio_version }}-linux.tar.gz"
+        dest: "/tmp/android-studio.tar.gz"
+        mode: "0644"
+      when: not android_studio_stat.stat.exists
+
+    - name: Extract Android Studio
+      unarchive:
+        src: "/tmp/android-studio.tar.gz"
+        dest: "{{ user_home }}"
+        remote_src: yes
+        owner: "{{ username }}"
+        group: "{{ username }}"
+      when: not android_studio_stat.stat.exists
+      become_user: "{{ username }}"
+
+    - name: Create Android Studio desktop entry
+      copy:
+        dest: /usr/share/applications/android-studio.desktop
+        content: |
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Android Studio
+          Icon={{ user_home }}/android-studio/bin/studio.png
+          Exec="{{ user_home }}/android-studio/bin/studio.sh" %f
+          Comment=The official Android IDE
+          Categories=Development;IDE;
+          Terminal=false
+          StartupWMClass=jetbrains-studio
+        mode: "0644"
+
+    - name: Create Android SDK directory
+      file:
+        path: "{{ user_home }}/android-studio-data/sdk"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0755"
+
+    - name: Clean up Android Studio tarball
+      file:
+        path: "/tmp/android-studio.tar.gz"
+        state: absent
+
+    # ============================================
+    # DOCKER
+    # ============================================
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Add user to docker group
+      user:
+        name: "{{ username }}"
+        groups: docker
+        append: yes
+
+    # ============================================
+    # GITHUB CLI
+    # ============================================
+
+    - name: Add GitHub CLI GPG key
+      apt_key:
+        url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+        state: present
+
+    - name: Add GitHub CLI repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://cli.github.com/packages stable main"
+        state: present
+        filename: github-cli
+
+    - name: Install GitHub CLI
+      apt:
+        name: gh
+        state: present
+        update_cache: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # PRODUCTIVITY & DESKTOP APPLICATIONS
+    # ============================================
+
+    - name: Install desktop applications
+      apt:
+        name:
+          - firefox-esr
+          - chromium
+          - thunderbird
+          - vlc
+          - libreoffice
+          - libreoffice-gtk3
+          - libreoffice-style-breeze
+          - gimp
+          - inkscape
+          - kdenlive
+          - obs-studio
+          - filezilla
+          - transmission-gtk
+          - bleachbit
+          - gparted
+          - timeshift
+          - audacity
+          - handbrake
+          - simple-scan
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # PROGRAMMING LANGUAGES
+    # ============================================
+
+    - name: Install programming languages and tools
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - golang
+          - default-jdk
+          - maven
+          - gradle
+          - php
+          - composer
+          - ruby
+          - ruby-dev
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ============================================
+    # FINAL CONFIGURATION
+    # ============================================
+
+    - name: Set zsh as default shell
+      user:
+        name: "{{ username }}"
+        shell: /usr/bin/zsh
+
+    - name: Create .gitconfig with user variables
+      copy:
+        dest: "{{ user_home }}/.gitconfig"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          [user]
+              name = {{ git_user_name }}
+              email = {{ git_user_email }}
+          [core]
+              editor = code --wait
+              autocrlf = input
+          [alias]
+              st = status
+              co = checkout
+              br = branch
+              ci = commit
+              lg = log --oneline --graph --decorate --all
+              last = log -1 HEAD
+          [pull]
+              rebase = false
+          [init]
+              defaultBranch = main
+
+  handlers:
+    - name: Reload systemd and restart earlyoom
+      systemd:
+        daemon_reload: yes
+        name: earlyoom
+        state: restarted

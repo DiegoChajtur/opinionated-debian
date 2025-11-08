@@ -1,0 +1,5 @@
+# Environment file with personal information
+.env
+
+# Ansible retry files
+*.retry
