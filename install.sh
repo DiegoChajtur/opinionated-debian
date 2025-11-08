@@ -12,9 +12,17 @@ ENV_URL="https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${REPO_BRAN
 # Ensure non-interactive mode
 export DEBIAN_FRONTEND=noninteractive
 
-echo "==> Installing Ansible..."
+export DEBIAN_FRONTEND=noninteractive
+
+echo "==> Installing Python and pip..."
 sudo apt-get update -qq
-sudo apt-get install -y -qq ansible curl
+sudo apt-get install -y -qq python3 python3-pip
+
+echo "==> Installing Ansible via pip..."
+python3 -m pip install --user ansible 
+# Add ansible to PATH for this session
+export PATH="$HOME/.local/bin:$PATH"
+
 
 echo "==> Downloading configuration files..."
 curl -fsSL "${PLAYBOOK_URL}" -o /tmp/bootstrap.yaml

@@ -6,7 +6,7 @@
   
   vars:
     # ============================================
-    # USER CONFIGURATION - LOADED FROM .env FILE
+    # USER CONFIGURATION - LOADED FROM .env FILE  
     # ============================================
     user_home: "{{ lookup('env', 'HOME') }}"
     username: "{{ lookup('env', 'USER') }}"
