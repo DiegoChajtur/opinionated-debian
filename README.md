@@ -1,9 +1,13 @@
 # Bootstrap script for Debian 13
 
-# Run with:
+![alt text](https://github.com/diegochajtur/opinionated-debian/blob/main/b32d3623-b2ce-485e-ab9d-c281b2d62537.png?raw=true)
 
-```bash
- sh -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/bootstrap.sh)"
+
+### Run with:
+
+```sh
+ sh -c "$(curl -fsSL https://raw.githubusercontent.com/diegochajtur/opinionated-debian/main/bootstrap.sh)"
 ```
+
 
 
