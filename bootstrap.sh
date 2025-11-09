@@ -2,9 +2,13 @@
 set -e
 
 # Configuration
-read -p "Enter your a comment (can be your email to easy remember) to configure your sshkey configuration:" SSH
+read -p "Enter your email for git config: " EMAIL
+read -p "Enter your name for git config: " NAME
 
-ssh-keygen -t rsa -b 4096 -C "$SSH" 
+git config --global user.email "$EMAIL" 
+git config --global user.name "$NAME" 
+
+ssh-keygen -t rsa -b 4096 -C "$EMAIL" 
 
 
 # Ensure non-interactive mode
